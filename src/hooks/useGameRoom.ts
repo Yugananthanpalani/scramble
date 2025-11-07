@@ -52,7 +52,7 @@ export const useGameRoom = (roomId: string | null, userId: string | null) => {
     try {
       const roomCode = generateRoomCode();
       const newRoomId = push(ref(rtdb, 'rooms')).key!;
-      
+
       const newRoom: GameRoom = {
         id: newRoomId,
         code: roomCode,
@@ -71,13 +71,15 @@ export const useGameRoom = (roomId: string | null, userId: string | null) => {
           status: 'waiting',
           currentRound: 0,
           totalRounds: 5,
-          roundDuration: 30,
+          roundDuration: 60,
           guesses: [],
-          timeRemaining: 30
+          timeRemaining: 60,
+          wordGiverOrder: [],
+          hasFoundWord: false
         },
         settings: {
           maxPlayers: 8,
-          roundDuration: 30,
+          roundDuration: 60,
           totalRounds: 5,
           category: 'general',
           pointsForCorrect: 100,
@@ -102,7 +104,6 @@ export const useGameRoom = (roomId: string | null, userId: string | null) => {
     setError(null);
 
     try {
-      // Find room by code
       const roomsRef = ref(rtdb, 'rooms');
       return new Promise((resolve, reject) => {
         onValue(roomsRef, (snapshot) => {
@@ -114,7 +115,7 @@ export const useGameRoom = (roomId: string | null, userId: string | null) => {
             return;
           }
 
-          const roomEntry = Object.entries(rooms).find(([_, room]: [string, any]) => 
+          const roomEntry = Object.entries(rooms).find(([_, room]: [string, any]) =>
             room.code === roomCode.toUpperCase()
           );
 
@@ -126,7 +127,7 @@ export const useGameRoom = (roomId: string | null, userId: string | null) => {
           }
 
           const [roomId, room] = roomEntry as [string, GameRoom];
-          
+
           if (Object.keys(room.players).length >= room.settings.maxPlayers) {
             setError('Room is full');
             setLoading(false);
@@ -134,7 +135,6 @@ export const useGameRoom = (roomId: string | null, userId: string | null) => {
             return;
           }
 
-          // Add player to room
           const newPlayer: Player = {
             id: playerId,
             name: playerName,
@@ -167,7 +167,7 @@ export const useGameRoom = (roomId: string | null, userId: string | null) => {
     if (!gameRoom || !userId) return;
 
     const playerIds = Object.keys(gameRoom.players);
-    const firstWordGiver = playerIds[Math.floor(Math.random() * playerIds.length)];
+    const firstWordGiver = playerIds[0];
 
     const updates = {
       [`rooms/${gameRoom.id}/gameState/status`]: 'playing',
@@ -176,44 +176,50 @@ export const useGameRoom = (roomId: string | null, userId: string | null) => {
       [`rooms/${gameRoom.id}/gameState/roundStartTime`]: Date.now(),
       [`rooms/${gameRoom.id}/gameState/timeRemaining`]: gameRoom.settings.roundDuration,
       [`rooms/${gameRoom.id}/gameState/guesses`]: [],
+      [`rooms/${gameRoom.id}/gameState/wordGiverOrder`]: playerIds,
+      [`rooms/${gameRoom.id}/gameState/hasFoundWord`]: false,
+      [`rooms/${gameRoom.id}/gameState/drawingData`]: null,
       [`rooms/${gameRoom.id}/updatedAt`]: Date.now()
     };
 
     await update(ref(rtdb), updates);
-    
-    // Send system message
-    await sendChatMessage('system', 'System', 'Game started! Get ready to unscramble words!');
+
+    await sendChatMessage('system', 'System', `Game started! ${gameRoom.players[firstWordGiver]?.name} will give the first word.`);
   }, [gameRoom, userId]);
 
   const submitWord = useCallback(async (word: string) => {
     if (!gameRoom || !userId) return;
 
     const scrambled = scrambleWord(word);
-    
+
     const updates = {
       [`rooms/${gameRoom.id}/gameState/currentWord`]: word.toLowerCase(),
       [`rooms/${gameRoom.id}/gameState/scrambledWord`]: scrambled,
       [`rooms/${gameRoom.id}/gameState/roundStartTime`]: Date.now(),
       [`rooms/${gameRoom.id}/gameState/timeRemaining`]: gameRoom.settings.roundDuration,
       [`rooms/${gameRoom.id}/gameState/guesses`]: [],
+      [`rooms/${gameRoom.id}/gameState/hasFoundWord`]: false,
       [`rooms/${gameRoom.id}/updatedAt`]: Date.now()
     };
 
     await update(ref(rtdb), updates);
-    
-    // Send system message with scrambled word
-    await sendChatMessage('system', 'System', `Unscramble this word: ${scrambled.toUpperCase()}`);
+
+    await sendChatMessage('system', 'System', `Time to guess! The word has ${word.length} letters.`);
   }, [gameRoom, userId]);
 
   const submitGuess = useCallback(async (guess: string, playerName: string) => {
     if (!gameRoom || !userId || !gameRoom.gameState.currentWord) return;
 
+    if (gameRoom.gameState.hasFoundWord) {
+      return;
+    }
+
     const isCorrect = guess.toLowerCase() === gameRoom.gameState.currentWord.toLowerCase();
-    const timeElapsed = gameRoom.gameState.roundStartTime 
-      ? (Date.now() - gameRoom.gameState.roundStartTime) / 1000 
+    const timeElapsed = gameRoom.gameState.roundStartTime
+      ? (Date.now() - gameRoom.gameState.roundStartTime) / 1000
       : 0;
-    
-    const points = isCorrect 
+
+    const points = isCorrect
       ? calculatePoints(true, timeElapsed, gameRoom.settings.roundDuration, gameRoom.settings.pointsForCorrect)
       : 0;
 
@@ -226,7 +232,6 @@ export const useGameRoom = (roomId: string | null, userId: string | null) => {
       points
     };
 
-    // Add guess to game state
     const currentGuesses = gameRoom.gameState.guesses || [];
     const updatedGuesses = [...currentGuesses, newGuess];
 
@@ -235,51 +240,76 @@ export const useGameRoom = (roomId: string | null, userId: string | null) => {
       [`rooms/${gameRoom.id}/updatedAt`]: Date.now()
     };
 
-    // If correct, update player score and potentially end round
     if (isCorrect) {
       const currentScore = gameRoom.players[userId]?.score || 0;
       updates[`rooms/${gameRoom.id}/players/${userId}/score`] = currentScore + points;
       updates[`rooms/${gameRoom.id}/gameState/roundWinner`] = userId;
-      
-      // Check if this was the last round
-      if (gameRoom.gameState.currentRound >= gameRoom.settings.totalRounds) {
-        updates[`rooms/${gameRoom.id}/gameState/status`] = 'finished';
-      } else {
-        // Move to next round after a delay
-        setTimeout(async () => {
-          await nextRound();
-        }, 3000);
-      }
-    }
+      updates[`rooms/${gameRoom.id}/gameState/hasFoundWord`] = true;
 
-    await update(ref(rtdb), updates);
-    
-    // Send chat message for the guess
-    await sendChatMessage('guess', playerName, guess);
+      const wordLength = gameRoom.gameState.currentWord.length;
+      const timeExtension = wordLength <= 5 ? 30 : wordLength <= 8 ? 45 : 60;
+      const currentTime = gameRoom.gameState.roundStartTime || Date.now();
+      const newEndTime = Date.now() + (timeExtension * 1000);
+
+      updates[`rooms/${gameRoom.id}/gameState/roundEndTime`] = newEndTime;
+      updates[`rooms/${gameRoom.id}/gameState/roundStartTime`] = currentTime;
+
+      await update(ref(rtdb), updates);
+
+      await sendChatMessage('correct', playerName, `${playerName} found the word "${gameRoom.gameState.currentWord.toUpperCase()}"! +${points} points! Time extended by ${timeExtension}s`);
+
+      setTimeout(async () => {
+        if (gameRoom.gameState.currentRound >= gameRoom.settings.totalRounds) {
+          await update(ref(rtdb), {
+            [`rooms/${gameRoom.id}/gameState/status`]: 'finished'
+          });
+        } else {
+          await nextRound();
+        }
+      }, timeExtension * 1000);
+    } else {
+      await update(ref(rtdb), updates);
+      await sendChatMessage('wrong', playerName, `${playerName} guessed "${guess}" - Wrong answer!`);
+    }
   }, [gameRoom, userId]);
 
   const nextRound = useCallback(async () => {
     if (!gameRoom) return;
 
-    const playerIds = Object.keys(gameRoom.players);
-    const nextWordGiver = playerIds[Math.floor(Math.random() * playerIds.length)];
+    const playerIds = gameRoom.gameState.wordGiverOrder || Object.keys(gameRoom.players);
+    const currentGiverIndex = playerIds.indexOf(gameRoom.gameState.currentWordGiver || '');
+    const nextGiverIndex = (currentGiverIndex + 1) % playerIds.length;
+    const nextWordGiver = playerIds[nextGiverIndex];
 
     const updates = {
       [`rooms/${gameRoom.id}/gameState/currentRound`]: gameRoom.gameState.currentRound + 1,
       [`rooms/${gameRoom.id}/gameState/currentWordGiver`]: nextWordGiver,
       [`rooms/${gameRoom.id}/gameState/currentWord`]: null,
       [`rooms/${gameRoom.id}/gameState/scrambledWord`]: null,
-      [`rooms/${gameRoom.id}/gameState/roundStartTime`]: null,
+      [`rooms/${gameRoom.id}/gameState/roundStartTime`]: Date.now(),
       [`rooms/${gameRoom.id}/gameState/timeRemaining`]: gameRoom.settings.roundDuration,
       [`rooms/${gameRoom.id}/gameState/guesses`]: [],
       [`rooms/${gameRoom.id}/gameState/roundWinner`]: null,
+      [`rooms/${gameRoom.id}/gameState/hasFoundWord`]: false,
+      [`rooms/${gameRoom.id}/gameState/drawingData`]: null,
+      [`rooms/${gameRoom.id}/gameState/roundEndTime`]: null,
       [`rooms/${gameRoom.id}/updatedAt`]: Date.now()
     };
 
     await update(ref(rtdb), updates);
+    await sendChatMessage('system', 'System', `Round ${gameRoom.gameState.currentRound + 1} - ${gameRoom.players[nextWordGiver]?.name}'s turn to give a word!`);
   }, [gameRoom]);
 
-  const sendChatMessage = useCallback(async (type: 'chat' | 'guess' | 'system', playerName: string, message: string) => {
+  const updateDrawing = useCallback(async (drawingData: string) => {
+    if (!gameRoom || !userId) return;
+
+    await update(ref(rtdb), {
+      [`rooms/${gameRoom.id}/gameState/drawingData`]: drawingData,
+      [`rooms/${gameRoom.id}/updatedAt`]: Date.now()
+    });
+  }, [gameRoom, userId]);
+
+  const sendChatMessage = useCallback(async (type: 'chat' | 'guess' | 'system' | 'correct' | 'wrong', playerName: string, message: string) => {
     if (!gameRoom) return;
 
     const chatRef = ref(rtdb, `chats/${gameRoom.id}`);
@@ -298,8 +328,7 @@ export const useGameRoom = (roomId: string | null, userId: string | null) => {
     if (!gameRoom || !userId) return;
 
     await remove(ref(rtdb, `rooms/${gameRoom.id}/players/${userId}`));
-    
-    // If host leaves, transfer host to another player or delete room
+
     if (gameRoom.players[userId]?.isHost) {
       const remainingPlayers = Object.values(gameRoom.players).filter(p => p.id !== userId);
       if (remainingPlayers.length > 0) {
@@ -324,6 +353,7 @@ export const useGameRoom = (roomId: string | null, userId: string | null) => {
     submitWord,
     submitGuess,
     sendChatMessage,
-    leaveRoom
+    leaveRoom,
+    updateDrawing
   };
 };
