@@ -97,10 +97,11 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
     await sendChatMessage('chat', user.displayName || 'Anonymous', message);
   };
 
-  const handleGuessSubmit = async () => {
-    if (!guessInput.trim() || !user || isCorrect || !gameRoom?.gameState.currentWord || gameRoom.gameState.hasFoundWord) return;
+  const handleGuessSubmit = async (guessValue?: string) => {
+    const guess = (guessValue || guessInput).trim().replace(/\s/g, '');
 
-    const guess = guessInput.trim().replace(/\s/g, '');
+    if (!guess || !user || isCorrect || !gameRoom?.gameState.currentWord || gameRoom.gameState.hasFoundWord) return;
+
     const wordLength = gameRoom.gameState.currentWord.length;
 
     if (guess.length !== wordLength) return;
@@ -158,7 +159,7 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
     }
 
     if (newValue.replace(/\s/g, '').length === wordLength && !isCorrect && !gameRoom.gameState.hasFoundWord && !showWrongFeedback) {
-      handleGuessSubmit();
+      handleGuessSubmit(newValue);
     }
   };
 
