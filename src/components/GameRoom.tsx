@@ -16,9 +16,12 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
   const [timeLeft, setTimeLeft] = useState(0);
   const [roundEnded, setRoundEnded] = useState(false);
   const [isCorrect, setIsCorrect] = useState(false);
+  const [showWrongFeedback, setShowWrongFeedback] = useState(false);
   const [localAttempts, setLocalAttempts] = useState<string[]>([]);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const roundEndHandledRef = useRef(false);
+  const timeoutEndedRef = useRef(false);
 
   const {
     gameRoom,
@@ -38,6 +41,9 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
       setIsCorrect(false);
       setGuessInput('');
       setLocalAttempts([]);
+      setShowWrongFeedback(false);
+      roundEndHandledRef.current = false;
+      timeoutEndedRef.current = false;
       return;
     }
 
@@ -45,6 +51,9 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
     setIsCorrect(false);
     setGuessInput('');
     setLocalAttempts([]);
+    setShowWrongFeedback(false);
+    roundEndHandledRef.current = false;
+    timeoutEndedRef.current = false;
 
     const interval = setInterval(() => {
       if (gameRoom.gameState.hasFoundWord && gameRoom.gameState.roundEndTime) {
@@ -57,13 +66,17 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
         const elapsed = (Date.now() - gameRoom.gameState.roundStartTime!) / 1000;
         const remaining = Math.max(0, gameRoom.settings.roundDuration - elapsed);
         setTimeLeft(Math.ceil(remaining));
-        if (remaining <= 0 && !roundEnded) {
+        if (remaining <= 0 && !timeoutEndedRef.current) {
           clearInterval(interval);
+          timeoutEndedRef.current = true;
           setRoundEnded(true);
           if (!isCorrect) {
             setGuessInput(gameRoom.gameState.currentWord.toUpperCase());
           }
-          endRound(false);
+          if (!roundEndHandledRef.current) {
+            roundEndHandledRef.current = true;
+            endRound(false);
+          }
         }
       }
     }, 100);
@@ -85,7 +98,7 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
   };
 
   const handleGuessSubmit = async () => {
-    if (!guessInput.trim() || !user || isCorrect || !gameRoom?.gameState.currentWord) return;
+    if (!guessInput.trim() || !user || isCorrect || !gameRoom?.gameState.currentWord || gameRoom.gameState.hasFoundWord) return;
 
     const guess = guessInput.trim().replace(/\s/g, '');
     const wordLength = gameRoom.gameState.currentWord.length;
@@ -95,12 +108,26 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
     const correct = guess.toLowerCase() === gameRoom.gameState.currentWord.toLowerCase();
 
     if (!localAttempts.includes(guess.toUpperCase())) {
-      setLocalAttempts([...localAttempts, guess.toUpperCase()]);
-      await submitGuess(guess, user.displayName || 'Anonymous');
-    }
-
-    if (correct) {
-      setIsCorrect(true);
+      if (correct) {
+        setIsCorrect(true);
+        setTimeout(() => {
+          setLocalAttempts([...localAttempts, guess.toUpperCase()]);
+          submitGuess(guess, user.displayName || 'Anonymous');
+        }, 600);
+      } else {
+        setShowWrongFeedback(true);
+        setTimeout(() => {
+          setShowWrongFeedback(false);
+          setLocalAttempts([...localAttempts, guess.toUpperCase()]);
+          submitGuess(guess, user.displayName || 'Anonymous');
+          setGuessInput('');
+          setTimeout(() => {
+            if (inputRefs.current[0]) {
+              inputRefs.current[0].focus();
+            }
+          }, 100);
+        }, 600);
+      }
     } else {
       setGuessInput('');
       setTimeout(() => {
@@ -130,10 +157,8 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
       inputRefs.current[index + 1]?.focus();
     }
 
-    if (newValue.replace(/\s/g, '').length === wordLength && !isCorrect && !gameRoom.gameState.hasFoundWord) {
-      setTimeout(() => {
-        handleGuessSubmit();
-      }, 100);
+    if (newValue.replace(/\s/g, '').length === wordLength && !isCorrect && !gameRoom.gameState.hasFoundWord && !showWrongFeedback) {
+      handleGuessSubmit();
     }
   };
 
@@ -185,15 +210,17 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
               onKeyDown={(e) => handleKeyDown(i, e)}
               disabled={isCorrect || roundEnded || gameRoom.gameState.hasFoundWord}
               autoFocus={i === 0}
-              className={`w-12 h-14 sm:w-14 sm:h-16 md:w-16 md:h-20 border-2 rounded-lg text-center text-2xl sm:text-3xl md:text-4xl font-bold transition-all duration-300 focus:outline-none focus:ring-2 ${
+              className={`w-12 h-14 sm:w-14 sm:h-16 md:w-16 md:h-20 border-2 rounded-lg text-center text-2xl sm:text-3xl md:text-4xl font-bold focus:outline-none focus:ring-2 ${
                 isCorrect
-                  ? 'border-green-500 bg-green-50 text-green-700 shadow-lg ring-green-400'
+                  ? 'border-green-500 bg-green-500 text-white shadow-lg ring-green-400 animate-pulse'
+                  : showWrongFeedback
+                  ? 'border-red-500 bg-red-500 text-white shadow-lg ring-red-400 animate-pulse'
                   : roundEnded
                   ? 'border-red-500 bg-red-50 text-red-700'
                   : displayValue[i]
-                  ? 'border-black bg-white text-black focus:ring-black'
-                  : 'border-gray-300 bg-white text-black focus:ring-black focus:border-black'
-              } ${(isCorrect || roundEnded || gameRoom.gameState.hasFoundWord) ? 'cursor-not-allowed' : ''}`}
+                  ? 'border-black bg-white text-black focus:ring-black transition-all duration-200'
+                  : 'border-gray-300 bg-white text-black focus:ring-black focus:border-black transition-all duration-200'
+              } ${(isCorrect || roundEnded || gameRoom.gameState.hasFoundWord || showWrongFeedback) ? 'cursor-not-allowed' : ''}`}
             />
           ))}
         </div>
