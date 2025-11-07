@@ -22,6 +22,7 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
   const roundEndHandledRef = useRef(false);
   const timeoutEndedRef = useRef(false);
+  const guessInputRef = useRef(guessInput);
 
   const {
     gameRoom,
@@ -83,6 +84,10 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
 
     return () => clearInterval(interval);
   }, [gameRoom?.gameState.roundStartTime, gameRoom?.gameState.currentWord, gameRoom?.gameState.hasFoundWord, gameRoom?.gameState.roundEndTime, endRound, roundEnded, isCorrect]);
+
+  useEffect(() => {
+    guessInputRef.current = guessInput;
+  }, [guessInput]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -147,7 +152,7 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
 
     if (!letter) return;
 
-    const newGuess = guessInput.split('');
+    const newGuess = guessInputRef.current.split('');
 
     while (newGuess.length < wordLength) {
       newGuess.push('');
@@ -158,15 +163,11 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
     setGuessInput(newValue);
 
     if (index < wordLength - 1) {
-      setTimeout(() => {
-        inputRefs.current[index + 1]?.focus();
-      }, 0);
+      inputRefs.current[index + 1]?.focus();
     } else if (index === wordLength - 1) {
-      setTimeout(() => {
-        if (!isCorrect && !gameRoom.gameState.hasFoundWord && !showWrongFeedback) {
-          handleGuessSubmit(newValue);
-        }
-      }, 0);
+      if (!isCorrect && !gameRoom.gameState.hasFoundWord && !showWrongFeedback) {
+        handleGuessSubmit(newValue);
+      }
     }
   };
 
@@ -212,7 +213,6 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
               key={i}
               ref={(el) => (inputRefs.current[i] = el)}
               type="text"
-              inputMode="none"
               maxLength={1}
               value={displayValue[i]?.toUpperCase() || ''}
               onChange={(e) => handleLetterChange(i, e.target.value)}
