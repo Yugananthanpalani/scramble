@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { ref, onValue, push, set, update, remove, off } from 'firebase/database';
 import { rtdb } from '../lib/firebase';
 import { GameRoom, Player, ChatMessage, Guess } from '../types/game';
@@ -9,6 +9,8 @@ export const useGameRoom = (roomId: string | null, userId: string | null) => {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const timeoutMessageSentRef = useRef<{[key: string]: boolean}>({});
+  const nextRoundMessageSentRef = useRef<{[key: string]: boolean}>({});
 
   useEffect(() => {
     if (!roomId) return;
@@ -276,19 +278,22 @@ export const useGameRoom = (roomId: string | null, userId: string | null) => {
   const endRound = useCallback(async (wasFound: boolean) => {
     if (!gameRoom) return;
 
-    if (!wasFound) {
-      await sendChatMessage('system', 'System', `Time's up! The word was "${gameRoom.gameState.currentWord?.toUpperCase()}". No one found it. 0 points awarded.`);
-    }
+    const roundKey = `${gameRoom.id}-${gameRoom.gameState.currentRound}-timeout`;
 
-    setTimeout(async () => {
-      if (gameRoom.gameState.currentRound >= gameRoom.settings.totalRounds) {
-        await update(ref(rtdb), {
-          [`rooms/${gameRoom.id}/gameState/status`]: 'finished'
-        });
-      } else {
-        await nextRound();
-      }
-    }, 2000);
+    if (!wasFound && !timeoutMessageSentRef.current[roundKey]) {
+      timeoutMessageSentRef.current[roundKey] = true;
+      await sendChatMessage('system', 'System', `Time's up! The word was "${gameRoom.gameState.currentWord?.toUpperCase()}". No one found it. 0 points awarded.`);
+
+      setTimeout(async () => {
+        if (gameRoom.gameState.currentRound >= gameRoom.settings.totalRounds) {
+          await update(ref(rtdb), {
+            [`rooms/${gameRoom.id}/gameState/status`]: 'finished'
+          });
+        } else {
+          await nextRound();
+        }
+      }, 2000);
+    }
   }, [gameRoom]);
 
   const nextRound = useCallback(async () => {
@@ -298,9 +303,17 @@ export const useGameRoom = (roomId: string | null, userId: string | null) => {
     const currentGiverIndex = playerIds.indexOf(gameRoom.gameState.currentWordGiver || '');
     const nextGiverIndex = (currentGiverIndex + 1) % playerIds.length;
     const nextWordGiver = playerIds[nextGiverIndex];
+    const nextRoundNumber = gameRoom.gameState.currentRound + 1;
+    const roundKey = `${gameRoom.id}-${nextRoundNumber}-start`;
+
+    if (nextRoundMessageSentRef.current[roundKey]) {
+      return;
+    }
+
+    nextRoundMessageSentRef.current[roundKey] = true;
 
     const updates = {
-      [`rooms/${gameRoom.id}/gameState/currentRound`]: gameRoom.gameState.currentRound + 1,
+      [`rooms/${gameRoom.id}/gameState/currentRound`]: nextRoundNumber,
       [`rooms/${gameRoom.id}/gameState/currentWordGiver`]: nextWordGiver,
       [`rooms/${gameRoom.id}/gameState/currentWord`]: null,
       [`rooms/${gameRoom.id}/gameState/scrambledWord`]: null,
@@ -315,7 +328,7 @@ export const useGameRoom = (roomId: string | null, userId: string | null) => {
     };
 
     await update(ref(rtdb), updates);
-    await sendChatMessage('system', 'System', `Round ${gameRoom.gameState.currentRound + 1} - ${gameRoom.players[nextWordGiver]?.name}'s turn to give a word!`);
+    await sendChatMessage('system', 'System', `Round ${nextRoundNumber} - ${gameRoom.players[nextWordGiver]?.name}'s turn to give a word!`);
   }, [gameRoom]);
 
   const updateDrawing = useCallback(async (drawingData: string) => {
