@@ -102,7 +102,7 @@ export function WaitingRoom({ roomId, roomCode, isHost, onStartGame, onLeave }: 
   };
 
   const handleStartGame = async () => {
-    if (!isHost) return;
+    if (!isHost || players.length < 2) return;
 
     try {
       const { error } = await supabase
@@ -208,27 +208,36 @@ export function WaitingRoom({ roomId, roomCode, isHost, onStartGame, onLeave }: 
           </div>
 
           <div className="space-y-3">
-            {!isHost && (
-              <button
-                onClick={toggleReady}
-                className={`w-full py-3 px-6 rounded-lg font-semibold transition-colors ${
-                  myReady
-                    ? 'bg-gray-200 text-gray-700 hover:bg-gray-300'
-                    : 'bg-green-500 text-white hover:bg-green-600'
-                }`}
-              >
-                {myReady ? 'Not Ready' : 'Ready!'}
-              </button>
-            )}
+            <button
+              onClick={toggleReady}
+              className={`w-full py-3 px-6 rounded-lg font-semibold transition-colors ${
+                myReady
+                  ? 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                  : 'bg-green-500 text-white hover:bg-green-600'
+              }`}
+            >
+              {myReady ? 'Not Ready' : 'Ready!'}
+            </button>
 
             {isHost && (
-              <button
-                onClick={handleStartGame}
-                disabled={!allReady}
-                className="w-full bg-black text-white py-3 px-6 rounded-lg font-semibold hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                {allReady ? 'Start Game' : `Waiting for players... (${players.filter(p => p.is_ready).length}/${players.length} ready)`}
-              </button>
+              <>
+                <button
+                  onClick={handleStartGame}
+                  disabled={!allReady || players.length < 2}
+                  className="w-full bg-black text-white py-3 px-6 rounded-lg font-semibold hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {players.length < 2
+                    ? 'Need at least 2 players'
+                    : allReady
+                    ? 'Start Game'
+                    : `Waiting for players... (${players.filter(p => p.is_ready).length}/${players.length} ready)`}
+                </button>
+                {players.length < 2 && (
+                  <p className="text-center text-sm text-gray-600">
+                    Share the room code with a friend to start playing!
+                  </p>
+                )}
+              </>
             )}
 
             {!isHost && !allReady && (
