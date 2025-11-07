@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ref, onValue, push, set, update, remove, off } from 'firebase/database';
 import { rtdb } from '../lib/firebase';
-import { GameRoom, Player, GameState, ChatMessage, Guess } from '../types/game';
-import { generateRoomCode, getRandomWord, scrambleWord, calculatePoints } from '../utils/gameUtils';
+import { GameRoom, Player, ChatMessage, Guess } from '../types/game';
+import { generateRoomCode, scrambleWord, calculatePoints } from '../utils/gameUtils';
 
 export const useGameRoom = (roomId: string | null, userId: string | null) => {
   const [gameRoom, setGameRoom] = useState<GameRoom | null>(null);
@@ -16,7 +16,7 @@ export const useGameRoom = (roomId: string | null, userId: string | null) => {
     const roomRef = ref(rtdb, `rooms/${roomId}`);
     const chatRef = ref(rtdb, `chats/${roomId}`);
 
-    const unsubscribeRoom = onValue(roomRef, (snapshot) => {
+    onValue(roomRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
         setGameRoom(data);
@@ -26,7 +26,7 @@ export const useGameRoom = (roomId: string | null, userId: string | null) => {
       setLoading(false);
     });
 
-    const unsubscribeChat = onValue(chatRef, (snapshot) => {
+    onValue(chatRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
         const messages = Object.entries(data).map(([id, msg]: [string, any]) => ({

@@ -16,7 +16,9 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
   const [timeLeft, setTimeLeft] = useState(0);
   const [roundEnded, setRoundEnded] = useState(false);
   const [isCorrect, setIsCorrect] = useState(false);
+  const [localAttempts, setLocalAttempts] = useState<string[]>([]);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   const {
     gameRoom,
@@ -35,12 +37,14 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
     if (!gameRoom?.gameState.roundStartTime) {
       setIsCorrect(false);
       setGuessInput('');
+      setLocalAttempts([]);
       return;
     }
 
     setRoundEnded(false);
     setIsCorrect(false);
     setGuessInput('');
+    setLocalAttempts([]);
 
     const interval = setInterval(() => {
       if (gameRoom.gameState.hasFoundWord && gameRoom.gameState.roundEndTime) {
@@ -83,30 +87,59 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
   const handleGuessSubmit = async () => {
     if (!guessInput.trim() || !user || isCorrect || !gameRoom?.gameState.currentWord) return;
 
-    const guess = guessInput.trim();
+    const guess = guessInput.trim().replace(/\s/g, '');
     const wordLength = gameRoom.gameState.currentWord.length;
 
     if (guess.length !== wordLength) return;
 
     const correct = guess.toLowerCase() === gameRoom.gameState.currentWord.toLowerCase();
 
-    await submitGuess(guess, user.displayName || 'Anonymous');
+    if (!localAttempts.includes(guess.toUpperCase())) {
+      setLocalAttempts([...localAttempts, guess.toUpperCase()]);
+      await submitGuess(guess, user.displayName || 'Anonymous');
+    }
 
     if (correct) {
       setIsCorrect(true);
+    } else {
+      setGuessInput('');
+      setTimeout(() => {
+        if (inputRefs.current[0]) {
+          inputRefs.current[0].focus();
+        }
+      }, 100);
     }
   };
 
-  const handleLetterChange = (value: string) => {
+  const handleLetterChange = (index: number, value: string) => {
     if (!gameRoom?.gameState.currentWord) return;
     const wordLength = gameRoom.gameState.currentWord.length;
-    const newValue = value.toUpperCase().slice(0, wordLength);
+
+    const letter = value.toUpperCase().slice(-1);
+    const newGuess = guessInput.split('');
+
+    while (newGuess.length < wordLength) {
+      newGuess.push('');
+    }
+
+    newGuess[index] = letter;
+    const newValue = newGuess.join('');
     setGuessInput(newValue);
 
-    if (newValue.length === wordLength && !isCorrect && !gameRoom.gameState.hasFoundWord) {
+    if (letter && index < wordLength - 1) {
+      inputRefs.current[index + 1]?.focus();
+    }
+
+    if (newValue.replace(/\s/g, '').length === wordLength && !isCorrect && !gameRoom.gameState.hasFoundWord) {
       setTimeout(() => {
         handleGuessSubmit();
       }, 100);
+    }
+  };
+
+  const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Backspace' && !guessInput[index] && index > 0) {
+      inputRefs.current[index - 1]?.focus();
     }
   };
 
@@ -127,7 +160,6 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
     onLeaveRoom();
   };
 
-
   const isHost = gameRoom?.players[user?.uid || '']?.isHost;
   const isWordGiver = gameRoom?.gameState.currentWordGiver === user?.uid;
   const canStart = isHost && gameRoom?.gameState.status === 'waiting';
@@ -140,49 +172,41 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
     const displayValue = isCorrect || roundEnded ? (guessInput || gameRoom.gameState.currentWord.toUpperCase()) : guessInput;
 
     return (
-      <div className="flex flex-col items-center space-y-4 my-6">
-        <div className="flex justify-center space-x-1 sm:space-x-2 flex-wrap gap-1 sm:gap-2 px-2">
+      <div className="flex flex-col items-center space-y-4">
+        <div className="flex justify-center gap-2 flex-wrap px-2">
           {Array.from({ length: wordLength }).map((_, i) => (
-            <div
+            <input
               key={i}
-              className={`w-10 h-12 sm:w-12 sm:h-16 border-2 rounded flex items-center justify-center text-2xl sm:text-3xl font-bold transition-all duration-300 ${
+              ref={(el) => (inputRefs.current[i] = el)}
+              type="text"
+              maxLength={1}
+              value={displayValue[i]?.toUpperCase() || ''}
+              onChange={(e) => handleLetterChange(i, e.target.value)}
+              onKeyDown={(e) => handleKeyDown(i, e)}
+              disabled={isCorrect || roundEnded || gameRoom.gameState.hasFoundWord}
+              autoFocus={i === 0}
+              className={`w-12 h-14 sm:w-14 sm:h-16 md:w-16 md:h-20 border-2 rounded-lg text-center text-2xl sm:text-3xl md:text-4xl font-bold transition-all duration-300 focus:outline-none focus:ring-2 ${
                 isCorrect
-                  ? 'border-green-500 bg-green-100 text-green-700 shadow-lg'
+                  ? 'border-green-500 bg-green-50 text-green-700 shadow-lg ring-green-400'
                   : roundEnded
                   ? 'border-red-500 bg-red-50 text-red-700'
                   : displayValue[i]
-                  ? 'border-black bg-white text-black'
-                  : 'border-gray-300 bg-white text-black'
-              }`}
-            >
-              {displayValue[i]?.toUpperCase() || ''}
-            </div>
+                  ? 'border-black bg-white text-black focus:ring-black'
+                  : 'border-gray-300 bg-white text-black focus:ring-black focus:border-black'
+              } ${(isCorrect || roundEnded || gameRoom.gameState.hasFoundWord) ? 'cursor-not-allowed' : ''}`}
+            />
           ))}
         </div>
-        {!isCorrect && !roundEnded && !gameRoom.gameState.hasFoundWord && (
-          <div className="w-full max-w-md px-4">
-            <input
-              type="text"
-              value={guessInput}
-              onChange={(e) => handleLetterChange(e.target.value)}
-              placeholder="Start typing..."
-              className="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-black text-black text-center font-mono text-lg sm:text-xl"
-              maxLength={wordLength}
-              autoFocus
-            />
-            <p className="text-xs sm:text-sm text-gray-500 text-center mt-2">Type your guess - auto submits when complete</p>
-          </div>
-        )}
       </div>
     );
   };
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center p-4">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-black mx-auto mb-4"></div>
-          <p className="text-black">Loading room...</p>
+          <div className="animate-spin rounded-full h-16 w-16 border-4 border-gray-300 border-t-black mx-auto mb-4"></div>
+          <p className="text-black font-medium">Loading room...</p>
         </div>
       </div>
     );
@@ -190,12 +214,12 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
 
   if (error || !gameRoom) {
     return (
-      <div className="min-h-screen bg-white flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-red-600 mb-4">{error || 'Room not found'}</p>
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex items-center justify-center p-4">
+        <div className="text-center bg-white p-8 rounded-2xl shadow-lg">
+          <p className="text-red-600 mb-4 font-medium">{error || 'Room not found'}</p>
           <button
             onClick={onLeaveRoom}
-            className="bg-black text-white px-4 py-2 rounded-lg hover:bg-gray-800"
+            className="bg-black text-white px-6 py-3 rounded-xl hover:bg-gray-800 font-medium transition-all duration-200 shadow-md hover:shadow-lg"
           >
             Back to Lobby
           </button>
@@ -208,55 +232,54 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
   const sortedPlayers = players.sort((a, b) => b.score - a.score);
 
   return (
-    <div className="min-h-screen bg-white flex flex-col">
-      <div className="bg-black text-white p-3 sm:p-4">
-        <div className="max-w-7xl mx-auto flex items-center justify-between flex-wrap gap-2">
-          <div className="flex items-center space-x-2 sm:space-x-4 flex-wrap">
-            <h1 className="text-lg sm:text-xl font-bold">Room: {gameRoom.code}</h1>
-            <div className="flex items-center space-x-1 sm:space-x-2 text-xs sm:text-sm">
-              <Users className="h-3 w-3 sm:h-4 sm:w-4" />
-              <span>{players.length}/{gameRoom.settings.maxPlayers}</span>
+    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100 flex flex-col">
+      <div className="bg-gradient-to-r from-gray-900 to-black text-white p-4 shadow-lg">
+        <div className="max-w-7xl mx-auto flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center space-x-4 flex-wrap gap-2">
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Room: {gameRoom.code}</h1>
+            <div className="flex items-center space-x-2 bg-white/10 px-3 py-1.5 rounded-full backdrop-blur-sm">
+              <Users className="h-4 w-4" />
+              <span className="text-sm font-medium">{players.length}/{gameRoom.settings.maxPlayers}</span>
             </div>
             {gameRoom.gameState.status === 'playing' && (
-              <span className="text-xs sm:text-sm">
+              <span className="bg-white/10 px-3 py-1.5 rounded-full text-sm font-medium backdrop-blur-sm">
                 Round {gameRoom.gameState.currentRound}/{gameRoom.settings.totalRounds}
               </span>
             )}
           </div>
-          <div className="flex items-center space-x-2 sm:space-x-4">
+          <div className="flex items-center space-x-3">
             {gameRoom.gameState.status === 'playing' && gameRoom.gameState.currentWord && (
-              <div className="flex items-center space-x-1 sm:space-x-2 bg-white text-black px-2 sm:px-3 py-1 rounded-lg">
-                <Clock className="h-3 w-3 sm:h-4 sm:w-4" />
-                <span className="font-mono font-bold text-sm sm:text-base">{timeLeft}s</span>
+              <div className="flex items-center space-x-2 bg-white text-black px-4 py-2 rounded-full shadow-md">
+                <Clock className="h-4 w-4" />
+                <span className="font-mono font-bold text-lg">{timeLeft}s</span>
               </div>
             )}
             <button
               onClick={handleLeaveRoom}
-              className="flex items-center space-x-1 text-red-400 hover:text-red-300 text-xs sm:text-sm"
+              className="flex items-center space-x-2 bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-full transition-all duration-200 shadow-md hover:shadow-lg font-medium"
             >
-              <LogOut className="h-3 w-3 sm:h-4 sm:w-4" />
+              <LogOut className="h-4 w-4" />
               <span className="hidden sm:inline">Leave</span>
-              <span className="sm:hidden">Exit</span>
             </button>
           </div>
         </div>
       </div>
 
-      <div className="flex-1 max-w-7xl mx-auto w-full flex flex-col lg:flex-row overflow-hidden">
-        <div className="flex-1 p-3 sm:p-4 lg:p-6 flex flex-col overflow-hidden">
-          <div className="bg-gray-50 rounded-lg p-4 sm:p-6 text-center flex-shrink-0">
+      <div className="flex-1 max-w-7xl mx-auto w-full flex flex-col lg:flex-row overflow-hidden p-4 gap-4">
+        <div className="flex-1 flex flex-col gap-4 overflow-hidden">
+          <div className="bg-white rounded-2xl p-6 shadow-lg border border-gray-200">
             {gameRoom.gameState.status === 'waiting' && (
-              <div>
-                <h2 className="text-xl sm:text-2xl font-bold text-black mb-2">Waiting for players...</h2>
-                <p className="text-sm sm:text-base text-gray-600 mb-4">
+              <div className="text-center">
+                <h2 className="text-2xl sm:text-3xl font-bold text-black mb-3">Waiting for players...</h2>
+                <p className="text-base text-gray-600 mb-6">
                   {players.length < 2 ? 'Need at least 2 players to start' : 'Ready to start!'}
                 </p>
                 {canStart && players.length >= 2 && (
                   <button
                     onClick={handleStartGame}
-                    className="bg-black text-white px-4 sm:px-6 py-2 sm:py-3 rounded-lg font-medium hover:bg-gray-800 flex items-center space-x-2 mx-auto text-sm sm:text-base"
+                    className="bg-gradient-to-r from-gray-900 to-black text-white px-8 py-4 rounded-xl font-bold hover:shadow-lg transition-all duration-200 flex items-center space-x-3 mx-auto text-lg shadow-md"
                   >
-                    <Play className="h-5 w-5" />
+                    <Play className="h-6 w-6" />
                     <span>Start Game</span>
                   </button>
                 )}
@@ -266,23 +289,23 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
             {gameRoom.gameState.status === 'playing' && (
               <div>
                 {needsWord ? (
-                  <div>
-                    <h2 className="text-lg sm:text-xl font-bold text-black mb-3 sm:mb-4">You're choosing the word!</h2>
-                    <p className="text-sm sm:text-base text-gray-600 mb-3 sm:mb-4">Enter a word for others to guess</p>
-                    <form onSubmit={handleWordSubmit} className="flex flex-col sm:flex-row space-y-2 sm:space-y-0 sm:space-x-2 max-w-md mx-auto px-4">
+                  <div className="text-center">
+                    <h2 className="text-2xl font-bold text-black mb-4">Your turn to choose!</h2>
+                    <p className="text-base text-gray-600 mb-6">Enter a word for others to guess</p>
+                    <form onSubmit={handleWordSubmit} className="flex flex-col sm:flex-row gap-3 max-w-md mx-auto">
                       <input
                         type="text"
                         value={wordInput}
                         onChange={(e) => setWordInput(e.target.value)}
                         placeholder="Enter a word"
-                        className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent text-black text-sm sm:text-base"
+                        className="flex-1 px-5 py-3 border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-black focus:border-black text-black transition-all duration-200"
                         maxLength={20}
                         required
                         autoFocus
                       />
                       <button
                         type="submit"
-                        className="bg-black text-white px-4 py-2 rounded-lg hover:bg-gray-800 text-sm sm:text-base w-full sm:w-auto"
+                        className="bg-black text-white px-6 py-3 rounded-xl hover:bg-gray-800 font-medium transition-all duration-200 shadow-md hover:shadow-lg"
                       >
                         Submit
                       </button>
@@ -291,29 +314,29 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
                 ) : gameRoom.gameState.currentWord ? (
                   <div>
                     {isWordGiver ? (
-                      <div className="px-4">
-                        <h2 className="text-xl sm:text-2xl font-bold text-black mb-3 sm:mb-4">
+                      <div className="text-center">
+                        <h2 className="text-2xl sm:text-3xl font-bold text-black mb-4">
                           Your word: {gameRoom.gameState.currentWord.toUpperCase()}
                         </h2>
-                        <p className="text-sm sm:text-base text-gray-600 mb-3 sm:mb-4">Wait for players to guess!</p>
-                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 sm:p-4 inline-block">
-                          <p className="text-blue-800 font-medium text-sm sm:text-base">Scrambled word for players:</p>
-                          <p className="text-2xl sm:text-3xl font-bold text-blue-900 mt-2 tracking-wider">
+                        <p className="text-base text-gray-600 mb-6">Wait for players to guess!</p>
+                        <div className="bg-gradient-to-br from-blue-50 to-blue-100 border-2 border-blue-200 rounded-2xl p-6 inline-block shadow-md">
+                          <p className="text-blue-800 font-semibold mb-3">Scrambled word for players:</p>
+                          <p className="text-4xl font-bold text-blue-900 tracking-widest">
                             {gameRoom.gameState.scrambledWord?.toUpperCase()}
                           </p>
                         </div>
                       </div>
                     ) : (
-                      <div className="px-4">
-                        <h2 className="text-xl sm:text-2xl font-bold text-black mb-2">Unscramble the word!</h2>
-                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 sm:p-4 inline-block mb-4">
-                          <p className="text-blue-800 font-medium mb-2 text-sm sm:text-base">Jumbled Word:</p>
-                          <p className="text-2xl sm:text-4xl font-bold text-blue-900 tracking-wider">
+                      <div className="text-center">
+                        <h2 className="text-2xl sm:text-3xl font-bold text-black mb-4">Unscramble the word!</h2>
+                        <div className="bg-gradient-to-br from-blue-50 to-blue-100 border-2 border-blue-200 rounded-2xl p-6 inline-block mb-6 shadow-md">
+                          <p className="text-blue-800 font-semibold mb-3">Jumbled Word:</p>
+                          <p className="text-4xl sm:text-5xl font-bold text-blue-900 tracking-widest">
                             {gameRoom.gameState.scrambledWord?.toUpperCase()}
                           </p>
                         </div>
                         {gameRoom.gameState.hasFoundWord && (
-                          <div className="mb-4 bg-green-100 text-green-800 px-3 sm:px-4 py-2 rounded-lg inline-block text-sm sm:text-base">
+                          <div className="bg-green-50 border-2 border-green-200 text-green-800 px-5 py-3 rounded-xl inline-block font-medium shadow-sm">
                             Word found! Round ending soon...
                           </div>
                         )}
@@ -321,9 +344,9 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
                     )}
                   </div>
                 ) : (
-                  <div className="px-4">
-                    <h2 className="text-lg sm:text-xl font-bold text-black mb-2">Waiting for word...</h2>
-                    <p className="text-sm sm:text-base text-gray-600">
+                  <div className="text-center">
+                    <h2 className="text-xl font-bold text-black mb-3">Waiting for word...</h2>
+                    <p className="text-base text-gray-600">
                       {gameRoom.players[gameRoom.gameState.currentWordGiver || '']?.name} is choosing a word
                     </p>
                   </div>
@@ -332,23 +355,23 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
             )}
 
             {gameRoom.gameState.status === 'finished' && (
-              <div className="max-h-96 overflow-y-auto px-4">
-                <Trophy className="h-10 w-10 sm:h-12 sm:w-12 text-yellow-500 mx-auto mb-3 sm:mb-4" />
-                <h2 className="text-xl sm:text-2xl font-bold text-black mb-3 sm:mb-4">Game Over!</h2>
-                <div className="text-base sm:text-lg mb-3 sm:mb-4">
+              <div className="text-center max-h-96 overflow-y-auto">
+                <Trophy className="h-16 w-16 text-yellow-500 mx-auto mb-4" />
+                <h2 className="text-3xl font-bold text-black mb-4">Game Over!</h2>
+                <div className="text-xl mb-6">
                   <span className="text-gray-600">Winner: </span>
                   <span className="font-bold text-black">{sortedPlayers[0]?.name}</span>
                   <span className="text-gray-600"> with {sortedPlayers[0]?.score} points!</span>
                 </div>
-                <div className="space-y-2 max-w-md mx-auto">
-                  <h3 className="font-bold text-black mb-2 text-sm sm:text-base">Final Scores:</h3>
+                <div className="space-y-3 max-w-md mx-auto">
+                  <h3 className="font-bold text-black mb-3 text-lg">Final Scores:</h3>
                   {sortedPlayers.map((player, index) => (
-                    <div key={player.id} className="flex items-center justify-between bg-white p-2 sm:p-3 rounded-lg">
-                      <div className="flex items-center space-x-2">
-                        <span className="font-bold text-gray-600 text-sm sm:text-base">#{index + 1}</span>
-                        <span className="text-black text-sm sm:text-base">{player.name}</span>
+                    <div key={player.id} className="flex items-center justify-between bg-gradient-to-r from-gray-50 to-gray-100 p-4 rounded-xl shadow-sm">
+                      <div className="flex items-center space-x-3">
+                        <span className="font-bold text-gray-500 text-lg">#{index + 1}</span>
+                        <span className="text-black font-medium">{player.name}</span>
                       </div>
-                      <span className="font-bold text-black text-sm sm:text-base">{player.score} pts</span>
+                      <span className="font-bold text-black text-lg">{player.score} pts</span>
                     </div>
                   ))}
                 </div>
@@ -357,61 +380,73 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
           </div>
 
           {gameRoom.gameState.status === 'playing' && gameRoom.gameState.currentWord && !isWordGiver && (
-            <div className="bg-white rounded-lg border border-gray-200 p-3 sm:p-4 lg:p-6 flex-shrink-0 mt-4">
-              <h3 className="font-bold text-black mb-3 sm:mb-4 text-center text-sm sm:text-base">Fill in your guess:</h3>
+            <div className="bg-white rounded-2xl border-2 border-gray-200 p-6 shadow-lg">
+              <h3 className="font-bold text-black mb-6 text-center text-lg">Tap the boxes to type your guess:</h3>
               {renderGuessBoxes()}
+              {localAttempts.length > 0 && (
+                <div className="mt-6 text-center">
+                  <p className="text-sm text-gray-500 mb-2 font-medium">Previous attempts:</p>
+                  <div className="flex flex-wrap justify-center gap-2">
+                    {localAttempts.map((attempt, idx) => (
+                      <span key={idx} className="bg-red-50 text-red-700 px-3 py-1 rounded-lg text-sm font-mono border border-red-200">
+                        {attempt}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
 
-        <div className="w-full lg:w-80 border-t lg:border-t-0 lg:border-l border-gray-200 flex flex-col max-h-96 lg:max-h-screen">
-          <div className="p-3 sm:p-4 border-b border-gray-200 flex-shrink-0">
-            <h3 className="font-bold text-black mb-2 sm:mb-3 flex items-center space-x-2 text-sm sm:text-base">
-              <Users className="h-3 w-3 sm:h-4 sm:w-4" />
+        <div className="w-full lg:w-80 bg-white rounded-2xl shadow-lg border border-gray-200 flex flex-col max-h-[500px] lg:max-h-[calc(100vh-120px)] overflow-hidden">
+          <div className="p-4 border-b border-gray-200">
+            <h3 className="font-bold text-black mb-3 flex items-center space-x-2 text-lg">
+              <Users className="h-5 w-5" />
               <span>Players ({players.length})</span>
             </h3>
-            <div className="max-h-32 sm:max-h-48 overflow-y-auto space-y-2">
+            <div className="max-h-40 overflow-y-auto space-y-2">
               {sortedPlayers.map((player) => (
                 <div
                   key={player.id}
-                  className="flex items-center justify-between p-2 bg-gray-50 rounded-lg"
+                  className="flex items-center justify-between p-3 bg-gradient-to-r from-gray-50 to-gray-100 rounded-xl shadow-sm"
                 >
-                  <div className="flex items-center space-x-1 sm:space-x-2 flex-1 min-w-0">
-                    {player.isHost && <Crown className="h-3 w-3 sm:h-4 sm:w-4 text-yellow-500 flex-shrink-0" />}
-                    <span className="font-medium text-black text-xs sm:text-sm truncate">{player.name}</span>
+                  <div className="flex items-center space-x-2 flex-1 min-w-0">
+                    {player.isHost && <Crown className="h-4 w-4 text-yellow-500 flex-shrink-0" />}
+                    <span className="font-medium text-black text-sm truncate">{player.name}</span>
                     {gameRoom.gameState.currentWordGiver === player.id && gameRoom.gameState.status === 'playing' && (
-                      <span className="text-xs bg-blue-100 text-blue-800 px-1 sm:px-2 py-0.5 sm:py-1 rounded flex-shrink-0">
+                      <span className="text-xs bg-blue-500 text-white px-2 py-1 rounded-full flex-shrink-0 font-medium">
                         Turn
                       </span>
                     )}
                   </div>
-                  <span className="font-bold text-black text-sm sm:text-base ml-2">{player.score}</span>
+                  <span className="font-bold text-black text-base ml-2">{player.score}</span>
                 </div>
               ))}
             </div>
           </div>
 
           <div className="flex-1 flex flex-col min-h-0">
-            <div className="p-3 sm:p-4 border-b border-gray-200 flex-shrink-0">
-              <h3 className="font-bold text-black text-sm sm:text-base">Chat</h3>
+            <div className="p-4 border-b border-gray-200">
+              <h3 className="font-bold text-black text-lg">Chat</h3>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-2">
+            <div className="flex-1 overflow-y-auto p-4 space-y-2">
               {chatMessages.filter(msg => msg.type === 'chat' || msg.type === 'system' || msg.type === 'correct' || msg.type === 'wrong').map((message) => (
                 <div
                   key={message.id}
-                  className={`text-xs sm:text-sm break-words ${
+                  className={`text-sm break-words rounded-xl ${
                     message.type === 'system'
-                      ? 'text-center text-gray-500 italic bg-gray-100 p-1.5 sm:p-2 rounded'
+                      ? 'text-center text-gray-600 italic bg-gray-100 p-3 font-medium'
                       : message.type === 'correct'
-                      ? 'bg-green-100 text-green-800 p-1.5 sm:p-2 rounded font-medium'
+                      ? 'bg-gradient-to-r from-green-100 to-green-200 text-green-900 p-3 font-semibold shadow-sm'
                       : message.type === 'wrong'
-                      ? 'bg-red-100 text-red-800 p-1.5 sm:p-2 rounded'
-                      : 'text-black'
+                      ? 'bg-gradient-to-r from-red-100 to-red-200 text-red-900 p-3 font-medium shadow-sm'
+                      : 'text-black bg-gray-50 p-3'
                   }`}
                 >
                   {message.type !== 'system' && message.type !== 'correct' && message.type !== 'wrong' && (
-                    <span className="font-medium">{message.playerName}: </span>
+                    <span className="font-semibold">{message.playerName}: </span>
                   )}
                   <span>{message.message}</span>
                 </div>
@@ -419,22 +454,22 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
               <div ref={chatEndRef} />
             </div>
 
-            <form onSubmit={handleChatSubmit} className="p-3 sm:p-4 border-t border-gray-200 flex-shrink-0">
+            <form onSubmit={handleChatSubmit} className="p-4 border-t border-gray-200">
               <div className="flex space-x-2">
                 <input
                   type="text"
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
                   placeholder="Type a message..."
-                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent text-black text-xs sm:text-sm"
+                  className="flex-1 px-4 py-3 border-2 border-gray-300 rounded-xl focus:ring-2 focus:ring-black focus:border-black text-black text-sm transition-all duration-200"
                   maxLength={100}
                 />
                 <button
                   type="submit"
                   disabled={!chatInput.trim()}
-                  className="bg-black text-white p-2 rounded-lg hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
+                  className="bg-black text-white p-3 rounded-xl hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 shadow-md hover:shadow-lg"
                 >
-                  <Send className="h-3 w-3 sm:h-4 sm:w-4" />
+                  <Send className="h-5 w-5" />
                 </button>
               </div>
             </form>

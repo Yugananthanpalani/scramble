@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Plus, Users, Play, Copy, Check } from 'lucide-react';
+import { useState } from 'react';
+import { Plus, Users, Play } from 'lucide-react';
 import { useGameRoom } from '../hooks/useGameRoom';
 
 interface LobbyScreenProps {
@@ -12,7 +12,6 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({ userId, userName, onRo
   const [roomCode, setRoomCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
   const { createRoom, joinRoom } = useGameRoom(null, userId);
 
   const handleCreateRoom = async () => {
@@ -46,15 +45,6 @@ export const LobbyScreen: React.FC<LobbyScreenProps> = ({ userId, userName, onRo
     }
   };
 
-  const copyRoomCode = async (code: string) => {
-    try {
-      await navigator.clipboard.writeText(code);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error('Failed to copy room code:', err);
-    }
-  };
 
   return (
     <div className="min-h-screen bg-white flex items-center justify-center p-4">

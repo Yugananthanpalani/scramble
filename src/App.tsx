@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { AuthScreen } from './components/AuthScreen';
 import { LobbyScreen } from './components/LobbyScreen';
 import { GameRoom } from './components/GameRoom';

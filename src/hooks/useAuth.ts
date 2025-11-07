@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { User, signInAnonymously, signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
+import { User, signInAnonymously, signInWithPopup, GoogleAuthProvider, signOut, updateProfile } from 'firebase/auth';
 import { auth } from '../lib/firebase';
 
 export const useAuth = () => {
@@ -20,7 +20,7 @@ export const useAuth = () => {
       const result = await signInAnonymously(auth);
       // Update display name for anonymous users
       if (result.user) {
-        await result.user.updateProfile({ displayName });
+        await updateProfile(result.user, { displayName });
       }
       return result.user;
     } catch (error) {
