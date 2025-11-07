@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Users, Crown, Clock, Send, Trophy, Play, LogOut } from 'lucide-react';
 import { useGameRoom } from '../hooks/useGameRoom';
 import { useAuth } from '../hooks/useAuth';
-import { DrawingCanvas } from './DrawingCanvas';
 
 interface GameRoomProps {
   roomId: string;
@@ -13,8 +12,10 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
   const { user } = useAuth();
   const [chatInput, setChatInput] = useState('');
   const [wordInput, setWordInput] = useState('');
+  const [guessInput, setGuessInput] = useState('');
   const [timeLeft, setTimeLeft] = useState(0);
   const [roundEnded, setRoundEnded] = useState(false);
+  const [isCorrect, setIsCorrect] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   const {
@@ -27,14 +28,19 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
     submitGuess,
     sendChatMessage,
     leaveRoom,
-    updateDrawing,
     endRound
   } = useGameRoom(roomId, user?.uid || null);
 
   useEffect(() => {
-    if (!gameRoom?.gameState.roundStartTime) return;
+    if (!gameRoom?.gameState.roundStartTime) {
+      setIsCorrect(false);
+      setGuessInput('');
+      return;
+    }
 
     setRoundEnded(false);
+    setIsCorrect(false);
+    setGuessInput('');
 
     const interval = setInterval(() => {
       if (gameRoom.gameState.hasFoundWord && gameRoom.gameState.roundEndTime) {
@@ -50,13 +56,16 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
         if (remaining <= 0 && !roundEnded) {
           clearInterval(interval);
           setRoundEnded(true);
+          if (!isCorrect) {
+            setGuessInput(gameRoom.gameState.currentWord.toUpperCase());
+          }
           endRound(false);
         }
       }
     }, 100);
 
     return () => clearInterval(interval);
-  }, [gameRoom?.gameState.roundStartTime, gameRoom?.gameState.currentWord, gameRoom?.gameState.hasFoundWord, gameRoom?.gameState.roundEndTime, endRound, roundEnded]);
+  }, [gameRoom?.gameState.roundStartTime, gameRoom?.gameState.currentWord, gameRoom?.gameState.hasFoundWord, gameRoom?.gameState.roundEndTime, endRound, roundEnded, isCorrect]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -68,16 +77,20 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
 
     const message = chatInput.trim();
     setChatInput('');
+    await sendChatMessage('chat', user.displayName || 'Anonymous', message);
+  };
 
-    if (
-      gameRoom?.gameState.status === 'playing' &&
-      gameRoom?.gameState.currentWord &&
-      gameRoom?.gameState.currentWordGiver !== user.uid &&
-      !gameRoom?.gameState.hasFoundWord
-    ) {
-      await submitGuess(message, user.displayName || 'Anonymous');
-    } else {
-      await sendChatMessage('chat', user.displayName || 'Anonymous', message);
+  const handleGuessSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!guessInput.trim() || !user || isCorrect || !gameRoom?.gameState.currentWord) return;
+
+    const guess = guessInput.trim();
+    const correct = guess.toLowerCase() === gameRoom.gameState.currentWord.toLowerCase();
+
+    await submitGuess(guess, user.displayName || 'Anonymous');
+
+    if (correct) {
+      setIsCorrect(true);
     }
   };
 
@@ -98,28 +111,58 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
     onLeaveRoom();
   };
 
-  const handleDrawingUpdate = async (data: string) => {
-    await updateDrawing(data);
-  };
 
   const isHost = gameRoom?.players[user?.uid || '']?.isHost;
   const isWordGiver = gameRoom?.gameState.currentWordGiver === user?.uid;
   const canStart = isHost && gameRoom?.gameState.status === 'waiting';
   const needsWord = gameRoom?.gameState.status === 'playing' && isWordGiver && !gameRoom?.gameState.currentWord;
 
-  const renderWordBlanks = () => {
-    if (!gameRoom?.gameState.currentWord) return null;
+  const renderGuessBoxes = () => {
+    if (!gameRoom?.gameState.currentWord || isWordGiver) return null;
+
     const wordLength = gameRoom.gameState.currentWord.length;
+    const displayValue = isCorrect || roundEnded ? (guessInput || gameRoom.gameState.currentWord.toUpperCase()) : guessInput;
+
     return (
-      <div className="flex justify-center space-x-2 my-4">
-        {Array.from({ length: wordLength }).map((_, i) => (
-          <div
-            key={i}
-            className="w-10 h-12 border-2 border-gray-300 rounded bg-white flex items-center justify-center text-2xl font-bold text-gray-400"
-          >
-            _
-          </div>
-        ))}
+      <div className="flex flex-col items-center space-y-4 my-6">
+        <div className="flex justify-center space-x-2 flex-wrap gap-2">
+          {Array.from({ length: wordLength }).map((_, i) => (
+            <div
+              key={i}
+              className={`w-12 h-16 border-2 rounded flex items-center justify-center text-3xl font-bold ${
+                isCorrect
+                  ? 'border-green-500 bg-green-50 text-green-700'
+                  : roundEnded
+                  ? 'border-red-500 bg-red-50 text-red-700'
+                  : 'border-gray-300 bg-white text-black'
+              }`}
+            >
+              {displayValue[i]?.toUpperCase() || ''}
+            </div>
+          ))}
+        </div>
+        {!isCorrect && !roundEnded && (
+          <form onSubmit={handleGuessSubmit} className="w-full max-w-md">
+            <div className="flex space-x-2">
+              <input
+                type="text"
+                value={guessInput}
+                onChange={(e) => setGuessInput(e.target.value.toUpperCase())}
+                placeholder="Type your guess"
+                className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent text-black text-center font-mono text-lg"
+                maxLength={wordLength}
+                disabled={isCorrect || gameRoom?.gameState.hasFoundWord}
+              />
+              <button
+                type="submit"
+                disabled={!guessInput.trim() || isCorrect || gameRoom?.gameState.hasFoundWord}
+                className="bg-black text-white px-6 py-2 rounded-lg hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Submit
+              </button>
+            </div>
+          </form>
+        )}
       </div>
     );
   };
@@ -188,9 +231,9 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
         </div>
       </div>
 
-      <div className="flex-1 max-w-7xl mx-auto w-full flex">
-        <div className="flex-1 p-6 space-y-4">
-          <div className="bg-gray-50 rounded-lg p-6 text-center">
+      <div className="flex-1 max-w-7xl mx-auto w-full flex overflow-hidden">
+        <div className="flex-1 p-6 flex flex-col overflow-hidden">
+          <div className="bg-gray-50 rounded-lg p-6 text-center flex-shrink-0">
             {gameRoom.gameState.status === 'waiting' && (
               <div>
                 <h2 className="text-2xl font-bold text-black mb-2">Waiting for players...</h2>
@@ -237,20 +280,28 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
                   <div>
                     {isWordGiver ? (
                       <div>
-                        <h2 className="text-2xl font-bold text-black mb-2">
+                        <h2 className="text-2xl font-bold text-black mb-4">
                           Your word: {gameRoom.gameState.currentWord.toUpperCase()}
                         </h2>
-                        <p className="text-gray-600">Draw clues for the other players!</p>
+                        <p className="text-gray-600 mb-4">Wait for players to guess!</p>
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 inline-block">
+                          <p className="text-blue-800 font-medium">Scrambled word for players:</p>
+                          <p className="text-3xl font-bold text-blue-900 mt-2 tracking-wider">
+                            {gameRoom.gameState.scrambledWord?.toUpperCase()}
+                          </p>
+                        </div>
                       </div>
                     ) : (
                       <div>
-                        <h2 className="text-2xl font-bold text-black mb-2">Guess the word!</h2>
-                        <p className="text-gray-600 mb-2">
-                          The word has {gameRoom.gameState.currentWord.length} letters
-                        </p>
-                        {renderWordBlanks()}
+                        <h2 className="text-2xl font-bold text-black mb-2">Unscramble the word!</h2>
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 inline-block mb-4">
+                          <p className="text-blue-800 font-medium mb-2">Jumbled Word:</p>
+                          <p className="text-4xl font-bold text-blue-900 tracking-wider">
+                            {gameRoom.gameState.scrambledWord?.toUpperCase()}
+                          </p>
+                        </div>
                         {gameRoom.gameState.hasFoundWord && (
-                          <div className="mt-4 bg-green-100 text-green-800 px-4 py-2 rounded-lg inline-block">
+                          <div className="mb-4 bg-green-100 text-green-800 px-4 py-2 rounded-lg inline-block">
                             Word found! Round ending soon...
                           </div>
                         )}
@@ -269,7 +320,7 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
             )}
 
             {gameRoom.gameState.status === 'finished' && (
-              <div>
+              <div className="max-h-96 overflow-y-auto">
                 <Trophy className="h-12 w-12 text-yellow-500 mx-auto mb-4" />
                 <h2 className="text-2xl font-bold text-black mb-4">Game Over!</h2>
                 <div className="text-lg mb-4">
@@ -293,22 +344,21 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
             )}
           </div>
 
-          {gameRoom.gameState.status === 'playing' && gameRoom.gameState.currentWord && (
-            <DrawingCanvas
-              drawingData={gameRoom.gameState.drawingData}
-              canDraw={isWordGiver}
-              onDrawingUpdate={handleDrawingUpdate}
-            />
+          {gameRoom.gameState.status === 'playing' && gameRoom.gameState.currentWord && !isWordGiver && (
+            <div className="bg-white rounded-lg border border-gray-200 p-6 flex-shrink-0">
+              <h3 className="font-bold text-black mb-4 text-center">Fill in your guess:</h3>
+              {renderGuessBoxes()}
+            </div>
           )}
         </div>
 
-        <div className="w-80 border-l border-gray-200 flex flex-col">
-          <div className="p-4 border-b border-gray-200">
+        <div className="w-80 border-l border-gray-200 flex flex-col max-h-screen">
+          <div className="p-4 border-b border-gray-200 flex-shrink-0">
             <h3 className="font-bold text-black mb-3 flex items-center space-x-2">
               <Users className="h-4 w-4" />
               <span>Players ({players.length})</span>
             </h3>
-            <div className="space-y-2">
+            <div className="max-h-48 overflow-y-auto space-y-2">
               {sortedPlayers.map((player) => (
                 <div
                   key={player.id}
@@ -316,10 +366,10 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
                 >
                   <div className="flex items-center space-x-2">
                     {player.isHost && <Crown className="h-4 w-4 text-yellow-500" />}
-                    <span className="font-medium text-black">{player.name}</span>
+                    <span className="font-medium text-black text-sm">{player.name}</span>
                     {gameRoom.gameState.currentWordGiver === player.id && gameRoom.gameState.status === 'playing' && (
                       <span className="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded">
-                        Drawing
+                        Turn
                       </span>
                     )}
                   </div>
@@ -329,24 +379,22 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
             </div>
           </div>
 
-          <div className="flex-1 flex flex-col">
-            <div className="p-4 border-b border-gray-200">
-              <h3 className="font-bold text-black">Chat & Guesses</h3>
+          <div className="flex-1 flex flex-col min-h-0">
+            <div className="p-4 border-b border-gray-200 flex-shrink-0">
+              <h3 className="font-bold text-black">Chat</h3>
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 space-y-2">
-              {chatMessages.map((message) => (
+              {chatMessages.filter(msg => msg.type === 'chat' || msg.type === 'system' || msg.type === 'correct' || msg.type === 'wrong').map((message) => (
                 <div
                   key={message.id}
-                  className={`text-sm ${
+                  className={`text-sm break-words ${
                     message.type === 'system'
                       ? 'text-center text-gray-500 italic bg-gray-100 p-2 rounded'
                       : message.type === 'correct'
                       ? 'bg-green-100 text-green-800 p-2 rounded font-medium'
                       : message.type === 'wrong'
                       ? 'bg-red-100 text-red-800 p-2 rounded'
-                      : message.type === 'guess'
-                      ? 'text-blue-600'
                       : 'text-black'
                   }`}
                 >
@@ -359,24 +407,19 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
               <div ref={chatEndRef} />
             </div>
 
-            <form onSubmit={handleChatSubmit} className="p-4 border-t border-gray-200">
+            <form onSubmit={handleChatSubmit} className="p-4 border-t border-gray-200 flex-shrink-0">
               <div className="flex space-x-2">
                 <input
                   type="text"
                   value={chatInput}
                   onChange={(e) => setChatInput(e.target.value)}
-                  placeholder={
-                    gameRoom.gameState.status === 'playing' && !isWordGiver && gameRoom.gameState.currentWord && !gameRoom.gameState.hasFoundWord
-                      ? 'Type your guess...'
-                      : 'Type a message...'
-                  }
+                  placeholder="Type a message..."
                   className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-black focus:border-transparent text-black text-sm"
                   maxLength={100}
-                  disabled={isWordGiver && gameRoom.gameState.status === 'playing'}
                 />
                 <button
                   type="submit"
-                  disabled={!chatInput.trim() || (isWordGiver && gameRoom.gameState.status === 'playing')}
+                  disabled={!chatInput.trim()}
                   className="bg-black text-white p-2 rounded-lg hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Send className="h-4 w-4" />
