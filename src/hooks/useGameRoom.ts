@@ -256,7 +256,7 @@ export const useGameRoom = (roomId: string | null, userId: string | null) => {
 
       await update(ref(rtdb), updates);
 
-      await sendChatMessage('correct', playerName, `${playerName} found the word "${gameRoom.gameState.currentWord.toUpperCase()}"! +${points} points! Time extended by ${timeExtension}s`);
+      await sendChatMessage('correct', playerName, `${playerName} found the word! +${points} points! Time extended by ${timeExtension}s`);
 
       setTimeout(async () => {
         if (gameRoom.gameState.currentRound >= gameRoom.settings.totalRounds) {
@@ -272,6 +272,24 @@ export const useGameRoom = (roomId: string | null, userId: string | null) => {
       await sendChatMessage('wrong', playerName, `${playerName} guessed "${guess}" - Wrong answer!`);
     }
   }, [gameRoom, userId]);
+
+  const endRound = useCallback(async (wasFound: boolean) => {
+    if (!gameRoom) return;
+
+    if (!wasFound) {
+      await sendChatMessage('system', 'System', `Time's up! The word was "${gameRoom.gameState.currentWord?.toUpperCase()}". No one found it. 0 points awarded.`);
+    }
+
+    setTimeout(async () => {
+      if (gameRoom.gameState.currentRound >= gameRoom.settings.totalRounds) {
+        await update(ref(rtdb), {
+          [`rooms/${gameRoom.id}/gameState/status`]: 'finished'
+        });
+      } else {
+        await nextRound();
+      }
+    }, 2000);
+  }, [gameRoom]);
 
   const nextRound = useCallback(async () => {
     if (!gameRoom) return;
@@ -354,6 +372,7 @@ export const useGameRoom = (roomId: string | null, userId: string | null) => {
     submitGuess,
     sendChatMessage,
     leaveRoom,
-    updateDrawing
+    updateDrawing,
+    endRound
   };
 };
