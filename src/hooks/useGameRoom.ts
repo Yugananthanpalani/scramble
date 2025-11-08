@@ -212,10 +212,6 @@ export const useGameRoom = (roomId: string | null, userId: string | null) => {
   const submitGuess = useCallback(async (guess: string, playerName: string) => {
     if (!gameRoom || !userId || !gameRoom.gameState.currentWord) return;
 
-    if (gameRoom.gameState.hasFoundWord) {
-      return;
-    }
-
     const isCorrect = guess.toLowerCase() === gameRoom.gameState.currentWord.toLowerCase();
     const timeElapsed = gameRoom.gameState.roundStartTime
       ? (Date.now() - gameRoom.gameState.roundStartTime) / 1000
@@ -242,7 +238,7 @@ export const useGameRoom = (roomId: string | null, userId: string | null) => {
       [`rooms/${gameRoom.id}/updatedAt`]: Date.now()
     };
 
-    if (isCorrect) {
+    if (isCorrect && !gameRoom.gameState.hasFoundWord) {
       const currentScore = gameRoom.players[userId]?.score || 0;
       updates[`rooms/${gameRoom.id}/players/${userId}/score`] = currentScore + points;
       updates[`rooms/${gameRoom.id}/gameState/roundWinner`] = userId;
@@ -271,7 +267,11 @@ export const useGameRoom = (roomId: string | null, userId: string | null) => {
       }, timeExtension * 1000);
     } else {
       await update(ref(rtdb), updates);
-      await sendChatMessage('wrong', playerName, `${playerName} guessed "${guess}" - Wrong answer!`);
+      if (isCorrect && gameRoom.gameState.hasFoundWord) {
+        await sendChatMessage('wrong', playerName, `${playerName} also found the word "${guess}" but someone was faster!`);
+      } else {
+        await sendChatMessage('wrong', playerName, `${playerName} guessed "${guess}" - Wrong answer!`);
+      }
     }
   }, [gameRoom, userId]);
 
@@ -282,7 +282,18 @@ export const useGameRoom = (roomId: string | null, userId: string | null) => {
 
     if (!wasFound && !timeoutMessageSentRef.current[roundKey]) {
       timeoutMessageSentRef.current[roundKey] = true;
-      await sendChatMessage('system', 'System', `Time's up! The word was "${gameRoom.gameState.currentWord?.toUpperCase()}". No one found it. 0 points awarded.`);
+
+      const wordGiverId = gameRoom.gameState.currentWordGiver;
+      const wordGiverScore = gameRoom.players[wordGiverId || '']?.score || 0;
+      const pointsForWordGiver = 50;
+
+      const updates: any = {
+        [`rooms/${gameRoom.id}/players/${wordGiverId}/score`]: wordGiverScore + pointsForWordGiver,
+        [`rooms/${gameRoom.id}/updatedAt`]: Date.now()
+      };
+
+      await update(ref(rtdb), updates);
+      await sendChatMessage('system', 'System', `Time's up! The word was "${gameRoom.gameState.currentWord?.toUpperCase()}". No one found it. Word giver gets +${pointsForWordGiver} points!`);
 
       setTimeout(async () => {
         if (gameRoom.gameState.currentRound >= gameRoom.settings.totalRounds) {

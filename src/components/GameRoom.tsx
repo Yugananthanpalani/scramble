@@ -105,7 +105,7 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
   const handleGuessSubmit = async (guessValue?: string) => {
     const guess = (guessValue || guessInput).trim().replace(/\s/g, '');
 
-    if (!guess || !user || isCorrect || !gameRoom?.gameState.currentWord || gameRoom.gameState.hasFoundWord) return;
+    if (!guess || !user || isCorrect || !gameRoom?.gameState.currentWord) return;
 
     const wordLength = gameRoom.gameState.currentWord.length;
 
@@ -165,7 +165,7 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
     if (index < wordLength - 1) {
       inputRefs.current[index + 1]?.focus();
     } else if (index === wordLength - 1) {
-      if (!isCorrect && !gameRoom.gameState.hasFoundWord && !showWrongFeedback) {
+      if (!isCorrect && !showWrongFeedback) {
         handleGuessSubmit(newValue);
       }
     }
@@ -217,7 +217,7 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
               value={displayValue[i]?.toUpperCase() || ''}
               onChange={(e) => handleLetterChange(i, e.target.value)}
               onKeyDown={(e) => handleKeyDown(i, e)}
-              disabled={isCorrect || roundEnded || gameRoom.gameState.hasFoundWord}
+              disabled={isCorrect || roundEnded}
               autoFocus={i === 0}
               className={`w-12 h-14 sm:w-14 sm:h-16 md:w-16 md:h-20 border-2 rounded-lg text-center text-2xl sm:text-3xl md:text-4xl font-bold focus:outline-none focus:ring-2 ${
                 isCorrect
@@ -229,7 +229,7 @@ export const GameRoom: React.FC<GameRoomProps> = ({ roomId, onLeaveRoom }) => {
                   : displayValue[i]
                   ? 'border-black bg-white text-black focus:ring-black transition-all duration-200'
                   : 'border-gray-300 bg-white text-black focus:ring-black focus:border-black transition-all duration-200'
-              } ${(isCorrect || roundEnded || gameRoom.gameState.hasFoundWord || showWrongFeedback) ? 'cursor-not-allowed' : ''}`}
+              } ${(isCorrect || roundEnded || showWrongFeedback) ? 'cursor-not-allowed' : ''}`}
             />
           ))}
         </div>
