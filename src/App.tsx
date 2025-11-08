@@ -17,6 +17,21 @@ function App() {
     }
   }, [user, loading]);
 
+  useEffect(() => {
+    if (currentScreen === 'game' && currentRoomId) {
+      const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+        e.preventDefault();
+        e.returnValue = '';
+        return '';
+      };
+
+      window.addEventListener('beforeunload', handleBeforeUnload);
+      return () => {
+        window.removeEventListener('beforeunload', handleBeforeUnload);
+      };
+    }
+  }, [currentScreen, currentRoomId]);
+
   const handleAuthenticated = () => {
     setCurrentScreen('lobby');
   };
